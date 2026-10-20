@@ -7,6 +7,10 @@ import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import bcrypt from "bcryptjs";
 import { db } from "./db";
 
+if (!process.env.NEXTAUTH_URL && process.env.RENDER_EXTERNAL_URL) {
+  process.env.NEXTAUTH_URL = process.env.RENDER_EXTERNAL_URL;
+}
+
 const providers: any[] = [
   Credentials({
     name: "Email",

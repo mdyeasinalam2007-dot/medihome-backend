@@ -26,5 +26,5 @@ describe("subscription", () => {
 });
 
 describe("privacy", () => {
-  it("masks phone numbers", () => { const m = maskPhone("01712345678"); expect(m).not.toContain("1712345"); expect(m.endsWith("409")).toBe(true); });
+  it("masks phone numbers", () => { const m = maskPhone("01712345678"); expect(m).not.toContain("1712345"); expect(m.endsWith("678")).toBe(true); });
 });
