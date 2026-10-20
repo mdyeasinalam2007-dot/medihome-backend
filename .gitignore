@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# environment variables & secrets (CRITICAL: Never commit .env or backups with secrets)
+.env*
+!.env.example
+
+# logs & debugging
+*.log
+*.txt
+npm-debug.log*
+yarn-debug.log*
+
+# backups & temporary directories
+*backup*
+*fix-*
+*.tsbuildinfo
+tsconfig.json.before-*
+
+# OS
+.DS_Store
+Thumbs.db
+

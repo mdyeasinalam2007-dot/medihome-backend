@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: medihome
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        sync: false
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      - key: NEXTAUTH_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: PAYMENT_MODE
+        value: auto
+      - key: ALLOW_MOCK_PAYMENTS
+        value: "false"
+      - key: SERVICE_FEE_BDT
+        value: "10"
+      - key: HOSPITAL_REG_FEE_BDT
+        value: "100"
+      - key: HOSPITAL_MONTHLY_FEE_BDT
+        value: "50"

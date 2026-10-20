@@ -1,0 +1,147 @@
+"use client";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useSession } from "next-auth/react";
+import { toast } from "./Toast";
+
+const LANGS: [string, string, string][] = [["auto", "Auto (typed text)", "en-US"], ["Bangla", "বাংলা", "bn-BD"], ["English", "English", "en-US"], ["Arabic", "العربية", "ar-SA"], ["Hindi", "हिन्दी", "hi-IN"], ["Urdu", "اردو", "ur-PK"]];
+const STOP = /^(stop|stop speaking|be quiet|থামো|থামুন|চুপ|বন্ধ করো)[.!।\s]*$/i, REPEAT = /^(repeat( that)?|say that again|আবার বলো|আবার বলুন|রিপিট)[.!।\s]*$/i;
+const plain = (t: string) => t.replace(/```[\s\S]*?```/g, " ").replace(/\[(.*?)\]\(.*?\)/g, "$1").replace(/https?:\S+/g, "").replace(/\[(R|W)\d+\]/g, "").replace(/[*_#>`]/g, "");
+const chunks = (t: string) => { const out: string[] = []; let cur = ""; for (const s of plain(t).split(/(?<=[.!?।\n])\s+/)) { if ((cur + " " + s).length > 180 && cur) { out.push(cur); cur = s; } else cur = (cur + " " + s).trim(); } if (cur) out.push(cur); return out; };
+const guess = (t: string, sel: string) => /[\u0980-\u09FF]/.test(t) ? "bn-BD" : /[\u0900-\u097F]/.test(t) ? "hi-IN" : /[\u0600-\u06FF]/.test(t) ? (sel === "Urdu" ? "ur-PK" : "ar-SA") : "en-US";
+
+type Doc = any;
+export default function Consultant() {
+  const { data, status: auth } = useSession();
+  const [msgs, setMsgs] = useState<any[]>([]), [input, setInput] = useState(""), [lang, setLang] = useState("auto"), [file, setFile] = useState<any>(null), [web, setWeb] = useState(false);
+  const [busy, setBusy] = useState(false), [st, setSt] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
+  const [convo, setConvo] = useState(false), [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]), [voiceURI, setVoiceURI] = useState(""), [paused, setPaused] = useState(false);
+  const [review, setReview] = useState<any>(null);
+  const convoRef = useRef(false), recRef = useRef<any>(null), msgsRef = useRef<any[]>([]), lastReply = useRef(""), sel = useRef("auto"), endRef = useRef<HTMLDivElement>(null);
+  convoRef.current = convo; msgsRef.current = msgs; sel.current = lang;
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+  const sttCode = () => LANGS.find((l) => l[0] === lang)![2];
+
+  useEffect(() => { if (!synth) return; const load = () => setVoices(synth.getVoices()); load(); synth.addEventListener?.("voiceschanged", load); return () => { synth.cancel(); recRef.current?.abort?.(); }; }, []);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, st]);
+
+  /* ---------- speaking ---------- */
+  function stopSpeak() { synth?.cancel(); setPaused(false); setSt((s) => (s === "speaking" ? "idle" : s)); }
+  function speak(text: string) {
+    if (!synth) return toast("This browser cannot read aloud (try Chrome or Edge).", "err");
+    stopSpeak(); const code = guess(text, sel.current), prefix = code.slice(0, 2);
+    const pool = voices.filter((v) => v.lang.toLowerCase().startsWith(prefix)), v = pool.find((x) => x.voiceURI === voiceURI) || pool[0];
+    if (!v) { toast(`No ${prefix.toUpperCase()} voice is installed on this device. Install one in Windows Settings > Time & language > Speech. The text answer is still shown.`, "err"); if (convoRef.current) setTimeout(listen, 400); return; }
+    const parts = chunks(text); if (!parts.length) return;
+    parts.forEach((c, i) => { const u = new SpeechSynthesisUtterance(c); u.voice = v; u.lang = v.lang;
+      if (i === parts.length - 1) { u.onend = () => { setSt("idle"); if (convoRef.current) setTimeout(listen, 300); }; u.onerror = () => setSt("idle"); }
+      synth.speak(u); });
+    setSt("speaking");
+  }
+
+  /* ---------- listening (browser speech recognition; in Chrome/Edge the audio is processed by the browser vendor's service) ---------- */
+  function listen() {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return toast("Voice input needs Chrome or Edge. You can still type.", "err");
+    if (busy) return; stopSpeak(); recRef.current?.abort?.();
+    const r = new SR(); r.lang = sttCode(); r.interimResults = true; r.continuous = false; let finalText = "";
+    r.onstart = () => setSt("listening");
+    r.onresult = (e: any) => { let t = ""; for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript; finalText = t; setInput(t); };
+    r.onerror = (e: any) => { setSt("idle"); setConvo(false); const m: any = { "not-allowed": "Microphone permission was denied. Allow it from the lock icon in the address bar.", "service-not-allowed": "Microphone permission was denied.", "no-speech": "I did not hear anything. Try again.", "audio-capture": "No microphone was found.", network: "The speech service could not be reached (Chrome needs internet for voice input).", "language-not-supported": "This language is not supported for voice input in your browser." }; if (e.error !== "aborted") toast(m[e.error] || "Voice input failed: " + e.error, "err"); };
+    r.onend = () => { if (finalText.trim()) { setInput(""); voiceText(finalText.trim()); } else setSt((s) => (s === "listening" ? "idle" : s)); };
+    try { r.start(); recRef.current = r; } catch { setSt("idle"); }
+  }
+  function voiceText(t: string) {
+    if (STOP.test(t)) { stopSpeak(); setConvo(false); return; }
+    if (REPEAT.test(t)) { if (lastReply.current) speak(lastReply.current); else toast("Nothing to repeat yet."); return; }
+    send(t, true);
+  }
+  const micClick = () => { if (st === "listening") { recRef.current?.stop?.(); } else { setConvo(false); listen(); } };
+  const toggleConvo = () => { if (convo) { setConvo(false); recRef.current?.abort?.(); stopSpeak(); setSt("idle"); } else { setConvo(true); setTimeout(listen, 50); } };
+
+  /* ---------- sending ---------- */
+  async function send(text?: string, spoken = false) {
+    const t = (text ?? input).trim(); if ((!t && !file) || busy) return;
+    const next = [...msgsRef.current, { role: "user", text: t || "Please explain this file." }]; setMsgs(next); setInput(""); setBusy(true); setSt("thinking"); stopSpeak();
+    try {
+      const r = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: next.map((m) => ({ role: m.role, text: m.text })), lang, webSearch: web, file: file ? { mime: file.mime, base64: file.base64 } : undefined }) });
+      const j = await r.json().catch(() => ({})); setFile(null);
+      const reply = r.ok ? j.reply : "⚠️ " + (j.error || "Something went wrong");
+      setMsgs([...next, { role: "assistant", text: reply, ...(r.ok ? { doctors: j.doctors, sources: j.sources, emergency: j.emergency, provider: j.provider, webNote: j.webNote, demo: j.demo, fromFile: j.file } : { error: true }) }]);
+      lastReply.current = reply; setSt("idle");
+      if (spoken || convoRef.current) speak(reply); else if (convoRef.current) setTimeout(listen, 300);
+    } catch { setMsgs([...next, { role: "assistant", text: "⚠️ Network problem. Please try again.", error: true }]); setSt("idle"); if (convoRef.current) setConvo(false); }
+    setBusy(false);
+  }
+  function pick(f?: File) { if (!f) return setFile(null); if (f.size > 5_000_000) return toast("File too large (max 5 MB)", "err"); const r = new FileReader(); r.onload = () => setFile({ name: f.name, mime: f.type, base64: String(r.result).split(",")[1] }); r.readAsDataURL(f); }
+
+  /* ---------- booking: review -> explicit confirm -> existing booking system ---------- */
+  async function prepare(d: Doc, date: string, time: string) {
+    const r = await fetch("/api/ai/book/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ doctorId: d.id, date, time }) }); const j = await r.json().catch(() => ({}));
+    if (!r.ok) return toast(j.error || (r.status === 403 ? "Use a patient account to book" : "Could not prepare booking"), "err"); setReview(j); stopSpeak();
+  }
+  async function confirmBook() {
+    const tk = review.token; setReview(null);
+    const r = await fetch("/api/ai/book", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: tk }) }); const j = await r.json().catch(() => ({}));
+    const text = r.ok ? `✅ Booking created (ID ${String(j.bookingId).slice(-8).toUpperCase()}). Status: awaiting the BDT service fee payment. It is confirmed only after the fee is verified.` : "⚠️ " + (j.error || "Booking failed");
+    setMsgs((m) => [...m, { role: "assistant", text, payUrl: r.ok ? j.payUrl : undefined, bookingId: r.ok ? j.bookingId : undefined, error: !r.ok }]); lastReply.current = text;
+    if (convoRef.current) speak(text);
+  }
+
+  if (auth === "loading") return <div className="skel" />;
+  if (!data?.user) return <><h1>AI <em>Consultant</em> — Ratchet</h1><div className="banner info" style={{ marginTop: 12 }}>Please <Link href="/login" style={{ fontWeight: 700 }}>sign in</Link> to use the consultant.</div></>;
+  const stLabel = { idle: "", listening: "🎙️ Listening… speak now", thinking: "⏳ Thinking…", speaking: "🔊 Speaking…" }[st];
+  const provider = [...msgs].reverse().find((m) => m.provider)?.provider;
+
+  return <div style={{ maxWidth: 720 }}>
+    <h1>AI <em>Consultant</em> — Ratchet</h1>
+    <p className="sub">Health information, report and image explanations, and doctor matching. It is not a doctor and cannot diagnose. Emergency: call 999.</p>
+    <div className="row" style={{ margin: "0 0 8px" }}>
+      <div style={{ minWidth: 150 }}><label htmlFor="lg" style={{ margin: 0 }}>Language (voice + replies)</label><select id="lg" value={lang} onChange={(e) => setLang(e.target.value)}>{LANGS.map((l) => <option key={l[0]} value={l[0]}>{l[1]}</option>)}</select></div>
+      <div style={{ minWidth: 150 }}><label htmlFor="vc" style={{ margin: 0 }}>Voice</label><select id="vc" value={voiceURI} onChange={(e) => setVoiceURI(e.target.value)}><option value="">Automatic</option>{voices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>)}</select></div>
+      <label style={{ display: "flex", gap: 6, alignItems: "center", margin: 0 }}><input type="checkbox" style={{ width: 16 }} checked={web} onChange={(e) => setWeb(e.target.checked)} /> Web search</label>
+    </div>
+    <div className="chat" aria-live="polite">
+      {!msgs.length && <p className="sub">Ask in Bangla or English. Try: "find a dermatologist at Dhaka Medical College Hospital", or upload a lab report photo.</p>}
+      {msgs.map((m, i) => <div key={i} className={"msg " + (m.role === "user" ? "u" : "b")} style={m.emergency ? { borderColor: "var(--red)", background: "#fef2f2" } : undefined}>
+        {m.text}
+        {m.demo && <div className="disc">Demo mode: no AI model configured.</div>}
+        {m.webNote && <div className="disc">{m.webNote}</div>}
+        {m.fromFile && <div className="disc">Please have a clinician review this. <Link href="/doctors" style={{ color: "var(--blue)", fontWeight: 700 }}>Find a doctor</Link></div>}
+        {m.sources?.length > 0 && <div className="disc">Sources: {m.sources.map((s: any) => <span key={s.id}><a href={s.url} target="_blank" rel="noreferrer" style={{ color: "var(--blue)" }}>[{s.id}] {s.title}</a> (retrieved {String(s.retrievedAt).slice(0, 10)}) </span>)}</div>}
+        {m.payUrl && <div className="row"><a className="btn bk sm" href={m.payUrl}>Pay service fee</a><Link className="btn ghost sm" href={`/bookings/${m.bookingId}`}>View booking</Link></div>}
+        {m.doctors && m.doctors.map((d: Doc) => <DoctorCard key={d.id} d={d} onReview={prepare} />)}
+        {m.role === "assistant" && !m.error && <div className="row" style={{ marginTop: 6, justifyContent: "flex-start" }}><button className="btn ghost sm" onClick={() => speak(m.text)}>▶ Play</button>
+          {st === "speaking" && <><button className="btn ghost sm" onClick={() => { synth?.pause(); setPaused(true); }} disabled={paused}>⏸</button><button className="btn ghost sm" onClick={() => { synth?.resume(); setPaused(false); }} disabled={!paused}>⏯ Resume</button><button className="btn ghost sm" onClick={stopSpeak}>⏹ Stop</button></>}</div>}
+      </div>)}
+      {stLabel && <div className="msg b" role="status">{stLabel}</div>}<div ref={endRef} />
+    </div>
+    <div className="card">
+      <textarea rows={2} value={input}  onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Type your question… / প্রশ্ন লিখুন…" aria-label="Message" />
+      <div className="row"><span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <button className={"btn " + (st === "listening" ? "bk" : "ghost")}  onClick={micClick} aria-label={st === "listening" ? "Stop listening" : "Start voice input"}>{st === "listening" ? "🎙️ Listening (tap to stop)" : "🎤 Speak"}</button>
+        <button className={"btn " + (convo ? "bk" : "ghost")}  onClick={toggleConvo}>{convo ? "End voice chat" : "Voice chat"}</button>
+        <label className="btn ghost" style={{ margin: 0, cursor: "pointer" }}>📎 File<input hidden type="file" accept="image/jpeg,image/png,image/webp,application/pdf"  onChange={(e) => pick(e.target.files?.[0])} /></label>
+        {file && <span className="badge">{file.name} <button style={{ border: 0, background: "none", cursor: "pointer" }} onClick={() => setFile(null)} aria-label="Remove file">✕</button></span>}
+      </span><span style={{ display: "flex", gap: 6 }}><button className="btn ghost sm" onClick={() => { setMsgs([]); stopSpeak(); setConvo(false); }}>Clear chat</button><button className="btn" disabled={busy} onClick={() => send()}>Send</button></span></div>
+      <p className="disc">Uploaded files are checked by type and size, processed in memory and not stored. Voice commands: "stop", "repeat that" / "থামো", "আবার বলো". Bookings always need your tap on Confirm.</p>
+    </div>
+    {review && <div className="modal on" onClick={(e) => e.target === e.currentTarget && setReview(null)}><div className="sheet" role="dialog" aria-modal="true" aria-label="Confirm booking"><h2>Please confirm this booking</h2>
+      <div className="sum"><div><span>Doctor</span>{review.summary.doctor}</div><div><span>Specialty</span>{review.summary.specialty}</div><div><span>Hospital</span>{review.summary.hospital}</div><div><span>Date</span>{review.summary.date}</div><div><span>Time</span>{review.summary.time || "-"}</div>
+        <div><span>Consultation fee (paid to hospital)</span>৳{review.summary.consultationFeeBdt}</div><div><span>MediHome service fee (pay next)</span>৳{review.summary.serviceFeeBdt}</div></div>
+      <div className="banner info">Nothing is booked until you press Confirm. The server checks the slot again, then you pay the service fee.</div>
+      <button className="btn em" style={{ width: "100%" }} onClick={confirmBook}>Confirm booking</button><button className="btn ghost" style={{ width: "100%", marginTop: 8 }} onClick={() => setReview(null)}>Cancel</button></div></div>}
+  </div>;
+}
+
+function DoctorCard({ d, onReview }: { d: Doc; onReview: (d: Doc, date: string, time: string) => void }) {
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10)), [time, setTime] = useState(d.slots[0] || "");
+  return <div className="card" style={{ marginTop: 8, color: "var(--tx)" }}>
+    <h3>{d.name}</h3><p>{d.specialty}{d.qualification && ` · ${d.qualification}`}{d.experience != null && ` · ${d.experience} yrs`}</p>
+    <p><Link href={`/hospitals/${d.hospital.id}`} style={{ color: "var(--blue)" }}>{d.hospital.name}</Link>{d.hospital.location && `, ${d.hospital.location}`}</p><p>{d.visitingDays} {d.visitingHours} · Fee ৳{d.feeBdt}</p>
+    <div className="two"><div><label>Date</label><input type="date" min={new Date().toISOString().slice(0, 10)} value={date} onChange={(e) => setDate(e.target.value)} /></div>
+      <div><label>Time</label>{d.slots.length ? <select value={time} onChange={(e) => setTime(e.target.value)}>{d.slots.map((s: string) => <option key={s}>{s}</option>)}</select> : <input value="By appointment" disabled />}</div></div>
+    <p style={{ fontSize: 11 }}>Slot availability is checked on the server when you review the booking.</p>
+    <div className="row"><Link className="btn ghost sm" href={`/doctors?q=${encodeURIComponent(d.name)}`}>Profile</Link><button className="btn sm" onClick={() => onReview(d, date, time)}>Review booking</button></div></div>;
+}
+
