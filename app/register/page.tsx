@@ -18,7 +18,7 @@ export default function Register() {
   return <div style={{ maxWidth: 520 }}><h1>Create account</h1>
     <div className="tabs"><button className={"tab " + (!hp ? "on" : "")} onClick={() => setRole("PATIENT")}>Patient</button><button className={"tab " + (hp ? "on" : "")} onClick={() => setRole("HOSPITAL")}>Hospital / Clinic</button><button className={"tab " + (role === "AMBULANCE" ? "on" : "")} onClick={() => setRole("AMBULANCE")}>Ambulance provider</button></div>
     <form className="card" onSubmit={go}>
-      {role === "PATIENT" && <><SocialButtons /><p className="sub" style={{ textAlign: "center", margin: "6px 0" }}>or sign up with email</p></>}
+      {role === "PATIENT" && <SocialButtons dividerText="or sign up with email" />}
       <label htmlFor="n">{hp || role === "AMBULANCE" ? "Contact person name" : "Full name"}</label><input id="n" required onChange={(e) => setF({ ...f, name: e.target.value })} />
       <label htmlFor="em">Email</label><input id="em" type="email" required autoComplete="email" onChange={(e) => setF({ ...f, email: e.target.value })} />
       <label htmlFor="pw">Password (8+ characters)</label><input id="pw" type="password" minLength={8} required autoComplete="new-password" onChange={(e) => setF({ ...f, password: e.target.value })} />

@@ -19,8 +19,7 @@ export default function Login() {
   return <div style={{ maxWidth: 420 }}><h1>Sign in</h1>
     <div className="card" style={{ marginTop: 14 }}>
       {note && <div className="banner warn">{note}</div>}
-      <SocialButtons />
-      <p className="sub" style={{ textAlign: "center", margin: "6px 0" }}>or sign in with email</p>
+      <SocialButtons dividerText="or sign in with email" />
       <form onSubmit={go}>
         <label htmlFor="e">Email</label><input id="e" type="email" required autoComplete="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
         <label htmlFor="p">Password</label><input id="p" type="password" required autoComplete="current-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
