@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { getProvider } from "@/lib/ai";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,8 @@ export async function GET() {
     };
   }
 
+  const aiProvider = getProvider();
+
   return NextResponse.json({
     status: dbStatus === "connected" ? "healthy" : "degraded",
     environment: process.env.NODE_ENV,
@@ -40,6 +43,11 @@ export async function GET() {
       status: dbStatus,
       stats,
       error: dbError,
+    },
+    ai: {
+      configured: Boolean(aiProvider),
+      provider: aiProvider?.name || null,
+      model: process.env.GEMINI_MODEL || "gemini-3.6-flash",
     },
     timestamp: new Date().toISOString(),
   });

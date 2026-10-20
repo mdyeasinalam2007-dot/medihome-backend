@@ -19,7 +19,7 @@ services:
       - key: AI_PROVIDER
         value: gemini
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.6-flash
       - key: PAYMENT_MODE
         value: auto
       - key: ALLOW_MOCK_PAYMENTS

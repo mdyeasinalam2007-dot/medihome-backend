@@ -24,23 +24,51 @@ const ollama: AIProvider = {
 const gemini: AIProvider = {
   name: "gemini", local: false,
   async generate({ system, messages, file }) {
-    const key = process.env.GEMINI_API_KEY!, aiza = key.startsWith("AIza"); // AIza... = Gemini API key, AQ.... = Vertex AI key
-    const model = process.env.GEMINI_MODEL || (aiza ? "gemini-2.0-flash" : "gemini-2.5-flash");
-    const contents = messages.map((m, i) => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.text }, ...(file && i === messages.length - 1 && m.role === "user" ? [{ inlineData: { mimeType: file.mime, data: file.base64 } }] : [])] }));
+    const key = (process.env.GEMINI_API_KEY || "").trim();
+    if (!key) throw new Error("GEMINI_KEY_MISSING");
+
+    const rawModel = (process.env.GEMINI_MODEL || "").trim();
+    // Default to gemini-3.6-flash if model is unset or references deprecated versions
+    const model = (!rawModel || rawModel === "gemini-2.5-flash" || rawModel === "gemini-2.0-flash")
+      ? "gemini-3.6-flash"
+      : rawModel;
+
+    const contents = messages.map((m, i) => ({
+      role: m.role === "user" ? "user" : "model",
+      parts: [
+        { text: m.text },
+        ...(file && i === messages.length - 1 && m.role === "user" ? [{ inlineData: { mimeType: file.mime, data: file.base64 } }] : [])
+      ]
+    }));
+
     // Medical photos of sensitive body areas can trip default filters: only block clearly high-risk output.
     const safetySettings = ["HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_DANGEROUS_CONTENT"].map((category) => ({ category, threshold: "BLOCK_ONLY_HIGH" }));
     const body = JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { temperature: 0.3 }, safetySettings });
-    const dev = { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, headers: { "x-goog-api-key": key } as Record<string, string> };
-    const vertex = { url: `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:generateContent?key=${encodeURIComponent(key)}`, headers: {} as Record<string, string> };
+
+    const dev = {
+      url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+      headers: { "x-goog-api-key": key, "Content-Type": "application/json" } as Record<string, string>
+    };
+    const vertex = {
+      url: `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+      headers: { "Content-Type": "application/json" } as Record<string, string>
+    };
+
     let status = 0, blocked = false;
-    for (const t of aiza ? [dev, vertex] : [vertex, dev]) {
-      const r = await fetch(t.url, { method: "POST", headers: { "Content-Type": "application/json", ...t.headers }, body }); status = r.status;
-      if (!r.ok) continue;
-      const j: any = await r.json(), text = j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("");
-      if (text) return text;
-      if (j?.promptFeedback?.blockReason || j?.candidates?.[0]?.finishReason === "SAFETY") blocked = true;
+    for (const t of [dev, vertex]) {
+      try {
+        const r = await fetch(t.url, { method: "POST", headers: t.headers, body });
+        status = r.status;
+        if (!r.ok) continue;
+        const j: any = await r.json();
+        const text = j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("");
+        if (text) return text;
+        if (j?.promptFeedback?.blockReason || j?.candidates?.[0]?.finishReason === "SAFETY") blocked = true;
+      } catch {
+        // try next endpoint
+      }
     }
-    throw new Error(blocked ? "AI_BLOCKED" : status && status !== 200 ? "AI HTTP " + status : "AI_EMPTY"); // never includes the key
+    throw new Error(blocked ? "AI_BLOCKED" : status && status !== 200 ? "AI HTTP " + status : "AI_EMPTY");
   },
 };
 
