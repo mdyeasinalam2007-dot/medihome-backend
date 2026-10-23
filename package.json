@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
-    "start": "next start",
+    "build": "prisma generate && next build && node scripts/standalone-assets.js",
+    "start": "node scripts/start-standalone.js",
     "postinstall": "prisma generate || echo prisma-generate-failed-run-it-manually",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
