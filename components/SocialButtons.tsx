@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { signIn, getProviders } from "next-auth/react";
+import { useI18n } from "./I18nProvider";
+import { setRememberChoice } from "@/lib/remember";
 
 const G = (
   <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
@@ -35,9 +37,12 @@ const F = (
 
 export default function SocialButtons({
   dividerText = "or sign in with email",
+  remember = false,
 }: {
   dividerText?: string;
+  remember?: boolean; // "Keep me signed in on this device" (sign-in page only; this device only)
 }) {
+  const { t } = useI18n();
   const [providers, setProviders] = useState<any>(null);
 
   useEffect(() => {
@@ -69,9 +74,9 @@ export default function SocialButtons({
           type="button"
           className="btn ghost"
           style={st}
-          onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+          onClick={() => { setRememberChoice(remember); signIn("google", { callbackUrl: "/dashboard" }); }}
         >
-          {G} Continue with Google
+          {G} {t.auth.google}
         </button>
       )}
       {hasFacebook && (
@@ -79,12 +84,12 @@ export default function SocialButtons({
           type="button"
           className="btn ghost"
           style={st}
-          onClick={() => signIn("facebook", { callbackUrl: "/dashboard" })}
+          onClick={() => { setRememberChoice(remember); signIn("facebook", { callbackUrl: "/dashboard" }); }}
         >
-          {F} Continue with Facebook
+          {F} {t.auth.facebook}
         </button>
       )}
-      <p className="sub" style={{ textAlign: "center", margin: "6px 0" }}>
+      <p className="auth-divider">
         {dividerText}
       </p>
     </div>

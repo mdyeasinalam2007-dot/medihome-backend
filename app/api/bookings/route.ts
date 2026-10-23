@@ -3,15 +3,14 @@ import { db } from "@/lib/db";
 import { handle, needUser, HttpError, limit } from "@/lib/guard";
 import { activeWhere } from "@/lib/subscription";
 import { FEE, bedEstimate } from "@/lib/pricing";
-
 import { catLabel } from "@/lib/constants";
+import { doctorSlotWhere, initialStatus, serializable, takeBed } from "@/lib/bookingFlow";
 
 export const GET = handle(async () => {
   const u = await needUser("PATIENT");
   return NextResponse.json(await db.booking.findMany({ where: { patientId: u.id }, orderBy: { createdAt: "desc" }, include: { hospital: { select: { name: true } } } }));
 });
 
-const HOLD = ["REQUESTED", "AWAITING_PAYMENT", "PAID", "CONFIRMED"];
 export const POST = handle(async (req) => {
   const u = await needUser("PATIENT"); limit("book:" + u.id, 10, 60_000);
   const b = await req.json().catch(() => ({}));
@@ -40,24 +39,24 @@ export const POST = handle(async (req) => {
     if (!(days >= 1 && days <= 60)) throw new HttpError(400, "Duration must be 1-60 days");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < today) throw new HttpError(400, "Choose a valid admission date");
     const e = bedEstimate(a.pricePerDay, days, a.additionalCharge, a.deposit); // price always computed on the server
-    Object.assign(data, { itemName: `${catLabel(a.category)}${a.name ? " - " + a.name : ""}`, itemRef: a.id, days, startDate: new Date(date + "T00:00:00Z"), baseAmount: e.accommodation, extraAmount: e.additional, depositAmount: e.deposit });
+    Object.assign(data, { itemName: `${catLabel(a.category)}${a.name ? " - " + a.name : ""}`, itemRef: a.id, units: 1, days, startDate: new Date(date + "T00:00:00Z"), baseAmount: e.accommodation, extraAmount: e.additional, depositAmount: e.deposit });
   } else if (b.type === "BLOOD") {
     const units = Math.floor(Number(b.units)), s = await db.bloodStock.findUnique({ where: { hospitalId_group: { hospitalId: h.id, group: String(b.group) } } });
     if (!s || !(units >= 1 && units <= 10) || s.units < units) throw new HttpError(409, "Requested units are not listed as available");
     Object.assign(data, { itemName: `Blood ${s.group}`, itemRef: s.group, units });
   } else throw new HttpError(400, "Invalid booking type");
 
-  let booking;
-  try {
-    booking = await db.$transaction(async (tx) => {
-      if (data.type === "DOCTOR") { // no double booking of the same doctor/date/time (unpaid holds expire after 30 min)
-        const clash = await tx.booking.findFirst({ where: { type: "DOCTOR", itemRef: data.itemRef, startDate: data.startDate, apptTime: data.apptTime, OR: [{ status: { in: ["PAID", "CONFIRMED", "REQUESTED"] } }, { status: "AWAITING_PAYMENT", createdAt: { gt: new Date(Date.now() - 30 * 60_000) } }] } });
-        if (clash) throw new HttpError(409, "That slot was just taken. Please choose another.");
-      }
-      return tx.booking.create({ data: { ...data, status: "CONFIRMED" } });
-    }, { isolationLevel: "Serializable" });
-  } catch (e: any) { if (e.code === "P2034") throw new HttpError(409, "Slot was just taken, please retry"); throw e; }
+  const booking = await serializable(async (tx) => {
+    if (data.type === "DOCTOR") { // no double booking of the same doctor/date/time
+      const clash = await tx.booking.findFirst({ where: doctorSlotWhere(data.itemRef, data.startDate, data.apptTime) });
+      if (clash) throw new HttpError(409, "That slot was just taken. Please choose another.");
+    }
+    if (data.type === "BED") await takeBed(tx, data.itemRef, h.id); // holds one unit; never below zero
+    return tx.booking.create({ data: { ...data, status: initialStatus(data.type) } });
+  });
 
-  return NextResponse.json({ bookingId: booking.id, status: booking.status, message: "Booking confirmed" });
+  const confirmed = booking.status === "CONFIRMED";
+  return NextResponse.json({ bookingId: booking.id, status: booking.status, demo: true,
+    message: confirmed ? "Booking confirmed (demo mode: no payment collected)." : "Request sent. The hospital must confirm it (demo mode: no payment collected)." });
 });
 

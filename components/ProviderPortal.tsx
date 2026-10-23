@@ -3,13 +3,20 @@ import { useEffect, useState } from "react";
 import AmbulanceActions from "./AmbulanceActions";
 import { toast } from "./Toast";
 const TYPES = ["Basic ambulance", "AC ambulance", "ICU / advanced life support", "Neonatal ambulance", "Freezing / mortuary van"];
-const LABEL: any = { PENDING: "Pending", ACCEPTED: "Accepted (awaiting patient fee)", CONFIRMED: "Confirmed", REJECTED: "Rejected", CANCELLED: "Cancelled", COMPLETED: "Completed" };
+const LABEL: any = { PENDING: "Pending", ACCEPTED: "Accepted (awaiting patient confirmation)", CONFIRMED: "Confirmed", REJECTED: "Rejected", CANCELLED: "Cancelled", COMPLETED: "Completed" };
 
 export default function ProviderPortal({ embedded }: { embedded?: boolean }) {
   const [tab, setTab] = useState("req"), [reqs, setReqs] = useState<any[] | null>(null), [veh, setVeh] = useState<any[] | null>(null), [f, setF] = useState<any>({ type: TYPES[0] });
   const loadR = () => fetch("/api/provider/bookings").then((r) => r.json()).then((j) => setReqs(Array.isArray(j) ? j : []));
   const loadV = () => fetch("/api/provider/vehicles").then((r) => r.json()).then((j) => setVeh(Array.isArray(j) ? j : []));
   useEffect(() => { loadR(); loadV(); }, []);
+  // Deep links /provider#requests and /provider#fleet (account menu). Not used when embedded in the hospital portal.
+  useEffect(() => {
+    if (embedded) return;
+    const sync = () => { const h = window.location.hash; if (h === "#requests") setTab("req"); if (h === "#fleet") setTab("veh"); };
+    sync(); window.addEventListener("hashchange", sync); return () => window.removeEventListener("hashchange", sync);
+  }, [embedded]);
+  const go = (k: string) => { setTab(k); if (!embedded) history.replaceState(null, "", k === "req" ? "#requests" : "#fleet"); };
   async function add(e: any) {
     e.preventDefault(); const r = await fetch("/api/provider/vehicles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, baseFare: Number(f.baseFare), perKm: Number(f.perKm || 0) }) });
     const j = await r.json().catch(() => ({})); if (!r.ok) return toast(j.error || "Failed", "err"); toast("Ambulance published"); setF({ type: TYPES[0] }); loadV();
@@ -17,11 +24,11 @@ export default function ProviderPortal({ embedded }: { embedded?: boolean }) {
   async function call(m: string, id: string) { const r = await fetch(`/api/provider/vehicles?id=${id}`, { method: m }); const j = await r.json().catch(() => ({})); r.ok ? loadV() : toast(j.error || "Failed", "err"); }
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
   return <div>{!embedded && <h1>Ambulance <em>Portal</em></h1>}
-    <div className="tabs"><button className={"tab " + (tab === "req" ? "on" : "")} onClick={() => setTab("req")}>Requests</button><button className={"tab " + (tab === "veh" ? "on" : "")} onClick={() => setTab("veh")}>My ambulances</button></div>
+    <div className="tabs"><button className={"tab " + (tab === "req" ? "on" : "")} onClick={() => go("req")}>Requests</button><button className={"tab " + (tab === "veh" ? "on" : "")} onClick={() => go("veh")}>My ambulances</button></div>
     {tab === "req" && (reqs === null ? <div className="skel" /> : reqs.length ? <div className="grid">{reqs.map((b) => <div className="card" key={b.id}>
       <div className="row" style={{ marginTop: 0 }}><h3>{b.type}</h3><span className="badge">{LABEL[b.status]}</span></div>
       <p>ID {b.id.slice(-8)} · Patient: {b.patient.name}</p><p>Contact: {b.contact}{["PENDING", "REJECTED", "CANCELLED"].includes(b.status) ? " (visible after you accept)" : ""}</p>
-      <p>From: {b.pickup}</p><p>To: {b.destination}</p><p>When: {new Date(b.requestedAt).toLocaleString()}</p><p>Fee ৳{b.feeBdt}: {b.payments.some((p: any) => p.status === "COMPLETED") ? "Paid" : "Not paid"}{b.refundPending ? " · refund pending" : ""}</p>
+      <p>From: {b.pickup}</p><p>To: {b.destination}</p><p>When: {new Date(b.requestedAt).toLocaleString()}</p>
       <AmbulanceActions id={b.id} status={b.status} who="provider" /></div>)}</div> : <div className="empty"><h3>No requests yet</h3><p>Patient requests will appear here.</p></div>)}
     {tab === "veh" && <div><form className="card" onSubmit={add} style={{ maxWidth: 520 }}><h3>Add ambulance</h3>
       <label htmlFor="vt">Type</label><select id="vt" value={f.type} onChange={(e) => set("type", e.target.value)}>{TYPES.map((t) => <option key={t}>{t}</option>)}</select>

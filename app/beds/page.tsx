@@ -1,110 +1,31 @@
 import { listAccommodations } from "@/lib/queries";
-import { CATEGORIES, catLabel } from "@/lib/constants";
+import { CATEGORIES } from "@/lib/constants";
 import { FEE } from "@/lib/pricing";
 import Empty, { SearchForm } from "@/components/Empty";
-import BookDialog from "@/components/BookDialog";
+import { PageHead, ResultInfo, Unavailable } from "@/components/listing/Listing";
+import { BedCard } from "@/components/listing/Cards";
+import { getLang } from "@/lib/i18n/server";
+import { getDictFor } from "@/lib/i18n/dictionaries";
 
 export const dynamic = "force-dynamic";
 
-export default async function Beds({
-  searchParams,
-}: {
-  searchParams?: { q?: string; cat?: string };
-}) {
-  const q = searchParams?.q;
-  const cat = searchParams?.cat;
-  let rows: any[] = [];
-  let dbError: string | null = null;
+export default async function Beds({ searchParams }: { searchParams?: { q?: string; cat?: string } }) {
+  const lang = getLang(), t = getDictFor(lang), q = searchParams?.q?.trim() || undefined, cat = searchParams?.cat || undefined;
+  let rows: any[] = [], failed = false;
+  try { rows = await listAccommodations(q, cat); } catch (err: any) { console.error("Failed to load accommodations:", err?.message || err); failed = true; }
 
-  try {
-    rows = await listAccommodations(q, cat);
-  } catch (err: any) {
-    console.error("Failed to load accommodations:", err?.message || err);
-    dbError = "Unable to connect to the database. Please try again shortly.";
-  }
-
-  return (
-    <>
-      <h1>Beds & Accommodation</h1>
-      <SearchForm q={q} placeholder="Hospital or area">
-        <select
-          name="cat"
-          defaultValue={cat || ""}
-          aria-label="Category"
-          style={{ width: 200 }}
-        >
-          <option value="">All categories</option>
-          {CATEGORIES.map((c) => (
-            <option key={c[0]} value={c[0]}>
-              {c[1]}
-            </option>
-          ))}
-        </select>
-      </SearchForm>
-      <div className="grid">
-        {dbError ? (
-          <Empty
-            icon="⚠️"
-            title="Service Temporarily Unavailable"
-            text={dbError}
-          />
-        ) : rows.length ? (
-          rows.map((a) => (
-            <div className="card" key={a.id}>
-              <div className="row" style={{ marginTop: 0 }}>
-                <h3>{catLabel(a.category)}</h3>
-                <span className={"badge " + (a.available > 0 ? "ok" : "bad")}>
-                  {a.available > 0
-                    ? `${a.available} of ${a.total} available`
-                    : "Full"}
-                </span>
-              </div>
-              <p>
-                {a.hospital?.name || "Hospital"}
-                {a.unit && ` · ${a.unit}`}
-              </p>
-              {a.name && <p>{a.name}</p>}
-              <p>
-                {a.ac === true ? "AC" : a.ac === false ? "Non-AC" : ""}{" "}
-                {a.sharing === "SHARED" ? "· Shared" : "· Private"}{" "}
-                {a.attachedBath ? "· Attached bath" : ""} ·{" "}
-                {(a.facilityLevel || "").toLowerCase()}
-              </p>
-              {a.equipment && <p>{a.equipment}</p>}
-              {a.notes && <p>Note: {a.notes}</p>}
-              {a.deposit > 0 && <p>Refundable deposit: ৳{a.deposit}</p>}
-              <p style={{ fontSize: 11 }}>
-                Updated{" "}
-                {a.updatedAt ? new Date(a.updatedAt).toLocaleDateString() : ""}
-              </p>
-              <div className="row">
-                <b>৳{a.pricePerDay}/day</b>
-                <BookDialog
-                  type="BED"
-                  label="Request"
-                  hospitalId={a.hospital?.id || a.hospitalId || ""}
-                  itemId={a.id}
-                  title={catLabel(a.category)}
-                  hospital={a.hospital?.name || "Hospital"}
-                  fee={FEE()}
-                  disabled={a.available < 1}
-                  bed={{
-                    pricePerDay: a.pricePerDay,
-                    additional: a.additionalCharge || 0,
-                    deposit: a.deposit || 0,
-                  }}
-                />
-              </div>
-            </div>
-          ))
-        ) : (
-          <Empty
-            icon="🛏️"
-            title="No Beds Available Right Now"
-            text="No hospital has published matching accommodation. Change filters or check back later."
-          />
-        )}
-      </div>
-    </>
-  );
+  return <>
+    <PageHead icon="bed" title={t.beds.title} sub={t.beds.sub} />
+    <SearchForm q={q} placeholder={t.beds.placeholder} label={t.list.searchLabel} button={t.list.search}>
+      <select name="cat" defaultValue={cat || ""} aria-label={t.beds.category} className="search-select">
+        <option value="">{t.beds.allCats}</option>
+        {CATEGORIES.map(([k]) => <option key={k} value={k}>{t.cats[k] || k}</option>)}
+      </select>
+    </SearchForm>
+    {failed ? <Unavailable t={t} /> : <>
+      <ResultInfo t={t} lang={lang} count={rows.length} q={q} filtered={!!(q || cat)} base="/beds" />
+      <div className="grid">{rows.length ? rows.map((a) => <BedCard key={a.id} a={a} t={t} lang={lang} fee={FEE()} />)
+        : <Empty icon="bed" title={t.beds.emptyTitle} text={t.beds.emptyText} />}</div>
+    </>}
+  </>;
 }

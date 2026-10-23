@@ -6,12 +6,15 @@ export async function sendMail(m: { to: string; subject: string; text: string })
     try {
       const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({ from: process.env.MAIL_FROM || "MediHome <onboarding@resend.dev>", to: [m.to], subject: m.subject, text: m.text }) });
+      if (!r.ok) console.error("[mail] Resend refused the message (HTTP " + r.status + "). Check RESEND_API_KEY and MAIL_FROM.");
       return r.ok ? "sent" : "failed";
-    } catch { return "failed"; }
+    } catch { console.error("[mail] could not reach Resend"); return "failed"; }
   }
   if (process.env.NODE_ENV !== "production") {
     console.log("\n[DEV MAIL: no email service configured, so the message is shown here]\nTo: " + m.to + "\nSubject: " + m.subject + "\n\n" + m.text + "\n");
     return "console";
   }
+  // Visible to the operator in the server log (no address or content is logged); visitors still see the usual message.
+  console.error("[mail] RESEND_API_KEY is not set, so no email was sent (password-reset codes cannot be delivered).");
   return "failed";
 }

@@ -10,7 +10,9 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "studio": "prisma studio",
+    "doctor": "node scripts/doctor.js",
     "typecheck": "tsc --noEmit",
+    "lint": "next lint --dir app --dir components --dir lib --dir tests",
     "test": "vitest run"
   },
   "dependencies": {
@@ -23,9 +25,9 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
-  "optionalDependencies": { "@next/swc-wasm-nodejs": "14.2.35" },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6", "@types/node": "^20", "@types/react": "^18", "@types/react-dom": "^18",
+    "eslint": "8.57.1", "eslint-config-next": "14.2.35",
     "prisma": "5.22.0", "typescript": "^5", "vitest": "^2.1.0"
   },
   "engines": { "node": ">=18.17" }

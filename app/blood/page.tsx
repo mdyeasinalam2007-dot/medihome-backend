@@ -1,93 +1,31 @@
+import Link from "next/link";
 import { listBlood } from "@/lib/queries";
 import { BLOOD_GROUPS } from "@/lib/constants";
 import { FEE } from "@/lib/pricing";
 import Empty from "@/components/Empty";
-import BookDialog from "@/components/BookDialog";
+import { PageHead, ResultInfo, Unavailable } from "@/components/listing/Listing";
+import { BloodCard } from "@/components/listing/Cards";
+import { getLang } from "@/lib/i18n/server";
+import { getDictFor } from "@/lib/i18n/dictionaries";
 
 export const dynamic = "force-dynamic";
 
-export default async function Blood({
-  searchParams,
-}: {
-  searchParams?: { group?: string };
-}) {
-  const group = searchParams?.group;
-  let rows: any[] = [];
-  let dbError: string | null = null;
+export default async function Blood({ searchParams }: { searchParams?: { group?: string } }) {
+  const lang = getLang(), t = getDictFor(lang), group = searchParams?.group || undefined;
+  let rows: any[] = [], failed = false;
+  try { rows = await listBlood(group); } catch (err: any) { console.error("Failed to load blood stock:", err?.message || err); failed = true; }
 
-  try {
-    rows = await listBlood(group);
-  } catch (err: any) {
-    console.error("Failed to load blood stock:", err?.message || err);
-    dbError = "Unable to connect to the database. Please try again shortly.";
-  }
-
-  return (
-    <>
-      <h1>Blood Bank</h1>
-      <p className="sub">
-        Units are reported by hospitals and may change. Availability does not
-        mean a unit is medically suitable for every patient; the hospital
-        confirms each request.
-      </p>
-      <form className="search">
-        <select
-          name="group"
-          defaultValue={group || ""}
-          aria-label="Blood group"
-        >
-          <option value="">All groups</option>
-          {BLOOD_GROUPS.map((g) => (
-            <option key={g}>{g}</option>
-          ))}
-        </select>
-        <button className="btn">Filter</button>
-      </form>
-      <div className="grid">
-        {dbError ? (
-          <Empty
-            icon="⚠️"
-            title="Service Temporarily Unavailable"
-            text={dbError}
-          />
-        ) : rows.length ? (
-          rows.map((s) => (
-            <div className="card" key={s.hospitalId + s.group}>
-              <h2 style={{ color: "var(--red)" }}>{s.group}</h2>
-              <p>
-                <b>{s.units}</b> units · {s.hospital?.name || "Hospital"}
-              </p>
-              <p>{s.hospital?.location || ""}</p>
-              {s.hospital?.bloodNote && (
-                <p>Requirements: {s.hospital.bloodNote}</p>
-              )}
-              <p style={{ fontSize: 11 }}>
-                Updated{" "}
-                {s.updatedAt ? new Date(s.updatedAt).toLocaleDateString() : ""}
-              </p>
-              <div className="row">
-                <span className="badge ok">Listed</span>
-                <BookDialog
-                  type="BLOOD"
-                  label="Request"
-                  hospitalId={s.hospitalId}
-                  itemId={s.group}
-                  title={`Blood ${s.group}`}
-                  hospital={s.hospital?.name || "Hospital"}
-                  fee={FEE()}
-                  maxUnits={s.units}
-                />
-              </div>
-            </div>
-          ))
-        ) : (
-          <Empty
-            icon="🩸"
-            title="No Blood Stock Information Available"
-            text="No hospital has listed available units for this selection yet."
-          />
-        )}
-      </div>
-    </>
-  );
+  // Same ?group= URL parameter as before; "+" is encoded as %2B, exactly as the old filter form submitted it.
+  return <>
+    <PageHead icon="blood" tone="blood" title={t.blood.title} sub={t.blood.sub} />
+    <nav className="chip-row" aria-label={t.blood.filterLabel}>
+      <Link href="/blood" className={"chip" + (!group ? " on" : "")} aria-current={!group ? "page" : undefined}>{t.blood.allGroups}</Link>
+      {BLOOD_GROUPS.map((g) => <Link key={g} href={`/blood?group=${encodeURIComponent(g)}`} className={"chip blood" + (group === g ? " on" : "")} aria-current={group === g ? "page" : undefined}>{g}</Link>)}
+    </nav>
+    {failed ? <Unavailable t={t} /> : <>
+      <ResultInfo t={t} lang={lang} count={rows.length} filtered={!!group} base="/blood" />
+      <div className="grid">{rows.length ? rows.map((s) => <BloodCard key={s.hospitalId + s.group} s={s} t={t} lang={lang} fee={FEE()} />)
+        : <Empty icon="blood" title={t.blood.emptyTitle} text={t.blood.emptyText} />}</div>
+    </>}
+  </>;
 }

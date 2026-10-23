@@ -1,54 +1,16 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { getProvider } from "@/lib/ai";
+import { db, dbConfigError } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+// Public health check: reveals only ok / error. Diagnostics go to the server log, never to the response.
 export async function GET() {
-  const hasDbUrl = Boolean(process.env.DATABASE_URL);
-  const dbUrlPreview = process.env.DATABASE_URL
-    ? process.env.DATABASE_URL.replace(/:([^:@]+)@/, ":****@")
-    : null;
-
-  let dbStatus = "unknown";
-  let dbError: any = null;
-  let stats: any = null;
-
-  try {
-    const [hospitals, doctors] = await Promise.all([
-      db.hospital.count(),
-      db.doctor.count(),
-    ]);
-    dbStatus = "connected";
-    stats = { hospitals, doctors };
-  } catch (err: any) {
-    dbStatus = "error";
-    dbError = {
-      name: err?.name,
-      message: err?.message,
-      code: err?.code,
-    };
+  let ok = false;
+  const problem = dbConfigError();
+  if (problem) console.error("[health] " + problem);
+  else {
+    try { await db.$queryRaw`SELECT 1`; ok = true; }
+    catch (e: any) { console.error("[health] database check failed:", e?.name || "error", e?.code || e?.errorCode || ""); }
   }
-
-  const aiProvider = getProvider();
-
-  return NextResponse.json({
-    status: dbStatus === "connected" ? "healthy" : "degraded",
-    environment: process.env.NODE_ENV,
-    renderUrl: process.env.RENDER_EXTERNAL_URL || null,
-    nextAuthUrl: process.env.NEXTAUTH_URL || null,
-    database: {
-      configured: hasDbUrl,
-      preview: dbUrlPreview,
-      status: dbStatus,
-      stats,
-      error: dbError,
-    },
-    ai: {
-      configured: Boolean(aiProvider),
-      provider: aiProvider?.name || null,
-      model: process.env.GEMINI_MODEL || "gemini-3.6-flash",
-    },
-    timestamp: new Date().toISOString(),
-  });
+  return NextResponse.json({ status: ok ? "ok" : "error" }, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
 }

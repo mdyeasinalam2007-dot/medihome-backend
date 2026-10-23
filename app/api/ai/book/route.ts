@@ -14,5 +14,5 @@ export const POST = handle(async (req) => {
     body: JSON.stringify({ type: "DOCTOR", hospitalId: p.hospitalId, itemId: p.doctorId, date: p.date, time: p.time }) }), {}); // availability is re-validated here, on the server
   const j: any = await res.json().catch(() => ({}));
   if (!res.ok) throw new HttpError(res.status, j.error || "Booking failed");
-  return NextResponse.json({ bookingId: j.bookingId, payUrl: j.url, status: "AWAITING_PAYMENT" });
+  return NextResponse.json({ bookingId: j.bookingId, status: j.status, demo: true, message: j.message });
 });

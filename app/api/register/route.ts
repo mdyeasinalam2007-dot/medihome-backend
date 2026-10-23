@@ -1,8 +1,9 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { handle, HttpError, limit, ip } from "@/lib/guard";
 import { audit } from "@/lib/audit";
+import { NEW_HOSPITAL_STATUS } from "@/lib/subscription"; // hospitals stay hidden until an administrator approves them
 
 export const POST = handle(async (req) => {
   limit("reg:" + ip(req), 8, 60_000);
@@ -17,10 +18,10 @@ export const POST = handle(async (req) => {
     data: {
       name, email, passwordHash: await bcrypt.hash(b.password, 12), role: isH ? "HOSPITAL" : isA ? "AMBULANCE" : "PATIENT",
       ...(isA && { ambulanceProvider: { create: { name: String(am.name).slice(0, 200), area: String(am.area).slice(0, 120), phone: String(am.phone).slice(0, 30) } } }),
-      ...(isH && { hospital: { create: { name: String(h.name).slice(0, 200), contactPerson: name, phone: String(h.phone).slice(0, 30), address: String(h.address).slice(0, 400), location: String(h.location || "").slice(0, 120), license: String(h.license).slice(0, 100), subStatus: "ACTIVE", subExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), regPaid: true, emergency: String(h.emergency || "").slice(0, 30), description: String(h.description || "").slice(0, 2000) } } }),
+      ...(isH && { hospital: { create: { name: String(h.name).slice(0, 200), contactPerson: name, phone: String(h.phone).slice(0, 30), address: String(h.address).slice(0, 400), location: String(h.location || "").slice(0, 120), license: String(h.license).slice(0, 100), subStatus: NEW_HOSPITAL_STATUS, subExpiresAt: null, regPaid: false, emergency: String(h.emergency || "").slice(0, 30), description: String(h.description || "").slice(0, 2000) } } }),
     },
   });
   await audit({ actorId: u.id, action: isH ? "HOSPITAL_REGISTERED" : isA ? "AMBULANCE_REGISTERED" : "PATIENT_REGISTERED", entity: "User", entityId: u.id });
-  return NextResponse.json({ ok: true }, { status: 201 });
+  return NextResponse.json({ ok: true, ...(isH ? { pendingApproval: true } : {}) }, { status: 201 });
 });
 

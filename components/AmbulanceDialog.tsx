@@ -1,29 +1,61 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { toast } from "./Toast";
-export default function AmbulanceDialog({ id, title, provider, fare, fee }: { id: string; title: string; provider: string; fare: string; fee: number }) {
-  const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [f, setF] = useState<any>({}); const { data } = useSession(); const router = useRouter();
-  const set = (k: string, v: string) => setF((x: any) => ({ ...x, [k]: v }));
-  function start() { if (!data?.user) { toast("Please sign in as a patient to book", "err"); return router.push("/login"); } if ((data.user as any).role !== "PATIENT") return toast("Use a patient account to book", "err"); setOpen(true); }
-  async function submit() {
-    setBusy(true); const r = await fetch("/api/ambulance-bookings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ambulanceId: id, ...f }) });
-    const j = await r.json().catch(() => ({})); setBusy(false);
-    if (!r.ok) return toast(j.error || "Could not send request", "err"); toast("Request sent to the provider"); router.push("/dashboard");
+import Modal from "./ui/Modal";
+import Icon from "./ui/Icon";
+import { useI18n } from "./I18nProvider";
+
+// Ambulance request -> success screen. Uses the existing POST /api/ambulance-bookings (the server re-validates).
+// The fare is agreed with the provider directly.
+export default function AmbulanceDialog({ id, title, provider, fare }: { id: string; title: string; provider: string; fare: string; fee?: number }) {
+  const { t } = useI18n(); const a = t.amb, b = t.book;
+  const { data } = useSession(); const router = useRouter();
+  const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [err, setErr] = useState(""), [done, setDone] = useState<string | null>(null), [tried, setTried] = useState(false);
+  const [f, setF] = useState({ pickup: "", destination: "", contact: "", requestedAt: "" });
+  const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
+  const missing = { pickup: !f.pickup.trim(), destination: !f.destination.trim(), contact: f.contact.replace(/\D/g, "").length < 8, requestedAt: !f.requestedAt };
+  const inv = (k: keyof typeof missing) => (tried && missing[k] ? { "aria-invalid": true as const, "aria-describedby": "am-err" } : {}); // marks each missing field
+
+  function start() {
+    if (!data?.user) { toast(b.signIn, "err"); router.push("/login"); return; }
+    if ((data.user as any).role !== "PATIENT") { toast(b.patientOnly, "err"); return; }
+    setErr(""); setDone(null); setTried(false); setOpen(true);
   }
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setTried(true);
+    if (Object.values(missing).some(Boolean)) { setErr(a.required); return; }
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch("/api/ambulance-bookings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ambulanceId: id, ...f, requestedAt: new Date(f.requestedAt).toISOString() }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(j.error || a.failed); return; }
+      setDone(String(j.id));
+    } catch { setErr(a.failed); } finally { setBusy(false); }
+  }
+
   return (<>
-    <button className="btn" onClick={start}>Request</button>
-    {open && <div className="modal" onClick={(e) => e.target === e.currentTarget && setOpen(false)}><div className="sheet" role="dialog" aria-modal="true" aria-label="Ambulance request">
-      <h2>{title}</h2><p style={{ color: "var(--mut)", fontSize: 14 }}>{provider}</p>
-      <label htmlFor="ap">Pickup location</label><input id="ap" onChange={(e) => set("pickup", e.target.value)} />
-      <label htmlFor="ad">Destination</label><input id="ad" onChange={(e) => set("destination", e.target.value)} />
-      <label htmlFor="ac">Your contact number</label><input id="ac" type="tel" inputMode="tel" onChange={(e) => set("contact", e.target.value)} />
-      <label htmlFor="at">Requested time</label><input id="at" type="datetime-local" onChange={(e) => set("requestedAt", e.target.value)} />
-      <div className="sum"><div><span>Fare (paid directly to provider)</span>{fare}</div><div><span>MediHome confirmation fee</span><b>৳{fee}</b></div></div>
-      <div className="banner info">You pay nothing now. If the provider accepts, <b>you (the patient)</b> pay the BDT {fee} fee via bKash to confirm. It is charged once per booking and is separate from the fare. Your number is shown to the provider only after they accept.</div>
-      <button className="btn em" style={{ width: "100%" }} disabled={busy} onClick={submit}>{busy ? "Sending…" : "Send request"}</button>
-      <button className="btn ghost" style={{ width: "100%", marginTop: 8 }} onClick={() => setOpen(false)}>Cancel</button>
-    </div></div>}
+    <button className="btn" onClick={start}>{t.ambulance.request}</button>
+    {open && <Modal title={done ? a.okTitle : a.title} sub={done ? undefined : `${title} · ${provider}`} onClose={() => setOpen(false)} closeLabel={b.close}>
+      {err && <div className="banner warn" role="alert" id="am-err">{err}</div>}
+      {!done ? <form onSubmit={submit} noValidate>
+        <label htmlFor="am-p">{a.pickup}</label><input id="am-p" {...inv("pickup")} value={f.pickup} maxLength={300} onChange={(e) => set("pickup", e.target.value)} required autoComplete="street-address" />
+        <label htmlFor="am-d">{a.destination}</label><input id="am-d" {...inv("destination")} value={f.destination} maxLength={300} onChange={(e) => set("destination", e.target.value)} required />
+        <label htmlFor="am-c">{a.contact}</label><input id="am-c" {...inv("contact")} type="tel" inputMode="tel" value={f.contact} maxLength={20} onChange={(e) => set("contact", e.target.value)} required autoComplete="tel" />
+        <label htmlFor="am-t">{a.when}</label><input id="am-t" {...inv("requestedAt")} type="datetime-local" value={f.requestedAt} onChange={(e) => set("requestedAt", e.target.value)} required />
+        <div className="sum"><div><span>{a.fare}</span>{fare}</div></div>
+        <div className="fee">{a.info}</div>
+        <div className="sheet-actions"><button type="button" className="btn ghost" data-modal-close>{b.cancel}</button>
+          <button className="btn em" disabled={busy} aria-busy={busy}>{busy ? b.wait : a.send}</button></div>
+      </form> : <div className="success">
+        <span className="success-ic"><Icon name="check" size={34} /></span>
+        <p>{a.okText}</p>
+        <div className="sum"><div><span>{a.requestId}</span><b className="mono">{done.slice(-8).toUpperCase()}</b></div><div><span>{b.item}</span>{title} · {provider}</div></div>
+        <div className="sheet-actions"><button type="button" className="btn ghost" data-modal-close>{b.close}</button><Link className="btn" href="/dashboard">{b.dashboard}</Link></div>
+      </div>}
+    </Modal>}
   </>);
 }

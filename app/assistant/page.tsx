@@ -1,3 +1,4 @@
 import Consultant from "@/components/Consultant";
-export const metadata = { title: "AI Consultant - MediHome" };
-export default function Page() { return <Consultant />; }
+import RatchetGreeting from "@/components/RatchetGreeting";
+export const metadata = { title: "Ratchet AI - MediHome" };
+export default function Page() { return <><RatchetGreeting /><Consultant /></>; }

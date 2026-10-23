@@ -5,9 +5,12 @@ const major = +process.versions.node.split(".")[0];
 console.log("MediHome setup check");
 major >= 18 && major <= 22 ? ok("Node.js v" + process.versions.node) : major < 18 ? err("Node.js v" + process.versions.node + " is too old. Install Node 20 LTS from nodejs.org") : warn("Node.js v" + process.versions.node + " is newer than tested. If install/build fails, install Node 20 or 22 LTS");
 
-const f = path.join(__dirname, "..", ".env"), env = {};
-if (!fs.existsSync(f)) { err(".env not found. Run:  Copy-Item .env.example .env   then edit it"); process.exit(1); }
-fs.readFileSync(f, "utf8").split(/\r?\n/).forEach((l) => { const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/); if (m) env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2"); });
+// Same files Next.js reads: .env, then .env.local (which wins). Real environment variables (e.g. on Render) win over both.
+const env = {}, files = [".env", ".env.local"].map((n) => path.join(__dirname, "..", n)).filter((f) => fs.existsSync(f));
+if (!files.length && !process.env.DATABASE_URL) { err("No .env or .env.local found. Run:  Copy-Item .env.example .env.local   then edit it"); process.exit(1); }
+console.log("  ..  reading: " + (files.map((f) => path.basename(f)).join(", ") || "environment variables only"));
+for (const f of files) fs.readFileSync(f, "utf8").split(/\r?\n/).forEach((l) => { const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/); if (m) env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2"); });
+for (const k of Object.keys(process.env)) if (/^[A-Z0-9_]+$/.test(k) && process.env[k]) env[k] = process.env[k];
 const has = (k) => !!env[k];
 
 const db = env.DATABASE_URL || "";
@@ -24,10 +27,8 @@ const pair = (a, b, name, uri) => { if (has(a) && has(b)) ok(name + " login conf
 pair("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "Google", "/api/auth/callback/google");
 pair("FACEBOOK_CLIENT_ID", "FACEBOOK_CLIENT_SECRET", "Facebook", "/api/auth/callback/facebook");
 
-const mode = (env.PAYMENT_MODE || "auto").toLowerCase(), bk = ["BKASH_APP_KEY", "BKASH_APP_SECRET", "BKASH_USERNAME", "BKASH_PASSWORD"].every(has);
-if (mode === "manual" || (mode === "auto" && !bk)) has("MEDIHOME_PAYMENT_DESTINATION") ? ok("Payments: bKash Send Money to your number (number not printed here)") : mode === "manual" ? err("PAYMENT_MODE=manual but MEDIHOME_PAYMENT_DESTINATION is empty") : warn("Payments: TEST MODE (simulated). Set MEDIHOME_PAYMENT_DESTINATION for real Send Money payments");
-else ok("Payments: official bKash checkout (" + (env.BKASH_BASE_URL || "") + ")");
-(env.OWNER_KEY || "").length >= 16 ? ok("OWNER_KEY set (payment verification page /owner/payments)") : warn("OWNER_KEY missing or shorter than 16 characters: you cannot approve manual payments until you set it");
+ok("Payments: DEMO MODE only (no real payments are collected; bKash settings are ignored)");
+(env.OWNER_KEY || "").length >= 16 ? ok("OWNER_KEY set (hospital approval page /owner)") : err("OWNER_KEY missing or shorter than 16 characters: new hospitals cannot be approved until you set it");
 const ap = (env.AI_PROVIDER || "auto").toLowerCase();
 if (has("OLLAMA_MODEL") && ap !== "gemini") ok("AI: local Ollama model " + env.OLLAMA_MODEL + " (free, stays on your computer)");
 else if (has("GEMINI_API_KEY") && ap !== "ollama") ok("AI: Gemini cloud key set (messages/images are sent to Google)");

@@ -1,76 +1,25 @@
 import { listTests } from "@/lib/queries";
 import { FEE } from "@/lib/pricing";
 import Empty, { SearchForm } from "@/components/Empty";
-import BookDialog from "@/components/BookDialog";
+import { PageHead, ResultInfo, Unavailable } from "@/components/listing/Listing";
+import { TestCard } from "@/components/listing/Cards";
+import { getLang } from "@/lib/i18n/server";
+import { getDictFor } from "@/lib/i18n/dictionaries";
 
 export const dynamic = "force-dynamic";
 
-export default async function Tests({
-  searchParams,
-}: {
-  searchParams?: { q?: string };
-}) {
-  const q = searchParams?.q;
-  let rows: any[] = [];
-  let dbError: string | null = null;
+export default async function Tests({ searchParams }: { searchParams?: { q?: string } }) {
+  const lang = getLang(), t = getDictFor(lang), q = searchParams?.q?.trim() || undefined;
+  let rows: any[] = [], failed = false;
+  try { rows = await listTests(q); } catch (err: any) { console.error("Failed to load diagnostic tests:", err?.message || err); failed = true; }
 
-  try {
-    rows = await listTests(q);
-  } catch (err: any) {
-    console.error("Failed to load diagnostic tests:", err?.message || err);
-    dbError = "Unable to connect to the database. Please try again shortly.";
-  }
-
-  return (
-    <>
-      <h1>Diagnostic Tests</h1>
-      <SearchForm q={q} placeholder="Test, category or hospital" />
-      <div className="grid">
-        {dbError ? (
-          <Empty
-            icon="⚠️"
-            title="Service Temporarily Unavailable"
-            text={dbError}
-          />
-        ) : rows.length ? (
-          rows.map((t) => (
-            <div className="card" key={t.id}>
-              <h3>{t.name}</h3>
-              <p>
-                {t.hospital?.name || "Hospital"}
-                {t.category && ` · ${t.category}`}
-              </p>
-              {t.preparation && <p>Preparation: {t.preparation}</p>}
-              {t.reportTime && <p>Report: {t.reportTime}</p>}
-              {(t.collection || "").includes("HOME") && (
-                <span className="badge">Home collection</span>
-              )}
-              <div className="row">
-                <b>৳{t.priceBdt}</b>
-                <BookDialog
-                  type="TEST"
-                  hospitalId={t.hospital?.id || t.hospitalId || ""}
-                  itemId={t.id}
-                  title={t.name}
-                  hospital={t.hospital?.name || "Hospital"}
-                  fee={FEE()}
-                  price={t.priceBdt}
-                  collection={(t.collection || "LAB")
-                    .split(",")
-                    .map((s: string) => s.trim())
-                    .filter(Boolean)}
-                />
-              </div>
-            </div>
-          ))
-        ) : (
-          <Empty
-            icon="🧪"
-            title="No Diagnostic Tests Available"
-            text="No hospital has published a test menu yet."
-          />
-        )}
-      </div>
-    </>
-  );
+  return <>
+    <PageHead icon="test" title={t.tests.title} sub={t.tests.sub} />
+    <SearchForm q={q} placeholder={t.tests.placeholder} label={t.list.searchLabel} button={t.list.search} />
+    {failed ? <Unavailable t={t} /> : <>
+      <ResultInfo t={t} lang={lang} count={rows.length} q={q} filtered={!!q} base="/tests" />
+      <div className="grid">{rows.length ? rows.map((x) => <TestCard key={x.id} x={x} t={t} lang={lang} fee={FEE()} />)
+        : <Empty icon="test" title={t.tests.emptyTitle} text={t.tests.emptyText} />}</div>
+    </>}
+  </>;
 }

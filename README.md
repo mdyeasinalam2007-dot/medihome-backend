@@ -1,5 +1,13 @@
 # MediHome - A to Z (Windows localhost)
 
+
+> **Current behaviour (English summary)**
+> - **Demo mode only:** MediHome collects no real payments and issues no refunds. Fees on the site are illustrative.
+> - **Hospital approval:** new hospitals stay pending and hidden until an admin approves them at `/owner` (needs `OWNER_KEY`, 16+ characters).
+> - **Required env vars:** `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `OWNER_KEY`. There are no built-in fallbacks. AI needs `GEMINI_API_KEY` or `OLLAMA_MODEL`.
+> - **Booking flow:** doctor/test bookings are confirmed at once; bed/blood requests need hospital confirmation. A bed is held from request until it is cancelled or rejected.
+> - **Checks:** `npm run typecheck`, `npm test`, `npm run lint`, `npm run build`.
+
 Eta puro project: purono feature + notun update, shob ek jaygay. Tomar ager `package.json`, `package-lock.json` ar version gulo hubohu ager moto rakha hoyeche (kono version bodlay ni, notun package add hoy ni).
 
 IMPORTANT: ami eta nijer computer e install/run kore dekhi ni, shudhu code syntax check korechi. Google, Facebook ar bKash asol credential diye ami test kori ni. Error ashle exact error text pathao.
@@ -31,11 +39,11 @@ Tarpor http://localhost:3000 kholo.
 `npx prisma db push` keno: notun folder e purono migration history nai, tai `migrate dev` na chaliye `db push` chalao. Eta notun table/column add kore. Jodi bole "data loss" ba "reset", **yes dio na**, stop kore amake message pathao.
 
 ## Kibhabe test korbe
-1. **Hospital:** Register -> Hospital/Clinic. Billing tab e "Pay" -> bKash Send Money page ashe (tomar number, Copy button shoho). TrxID (je kono 8-14 akkhor, test er jonno, jemon `TEST12345678`) dao -> Submit.
-2. **Payment approve:** http://localhost:3000/owner/payments -> `OWNER_KEY` dao -> Approve. Hospital active hoy.
+1. **Hospital:** Register -> Hospital/Clinic. Hospital ta **PENDING** thake (patient ra dekhte pay na) jotokkhon admin approve na kore.
+2. **Admin approve:** http://localhost:3000/owner -> `OWNER_KEY` dao -> Approve. Hospital active hoy (prothom 30 din, demo: kono payment nai).
 3. Hospital Portal e doctor, bed, blood, test add koro. **Ambulance** tab e hospital er ambulance add koro.
-4. **Patient:** arek browser e register -> doctor/bed/test/blood/ambulance book -> fee pay (same Send Money flow) -> owner page theke approve -> booking confirm.
-5. **Ambulance provider:** Register -> "Ambulance provider". Gari add koro, request Accept koro. Patient fee pay korle confirmed.
+4. **Patient:** arek browser e register -> doctor/test book korle sathe sathe Confirmed; bed/blood request hospital Confirm korle Confirmed. Kono payment nai (demo mode).
+5. **Ambulance provider:** Register -> "Ambulance provider". Gari add koro, request Accept koro. Patient "Confirm (demo)" chaple confirmed.
 6. **AI:** Assistant page (sign in lagbe). Report upload kora jay.
 
 ## Forgot password (notun)
@@ -48,7 +56,7 @@ Login page e "Forgot password?" link. Email din -> reset link (30 minute, ekbar-
 ## Notun ki ki add hoyeche
 - Hospital nijer ambulance service dite pare (Hospital Portal -> Ambulance). Patient hospital er page theke ba Ambulance page theke book kore. Alada Ambulance provider account-o ache.
 - Ambulance e confirmation fee BDT 10 (patient dey, provider accept korar pore, ekbar-i, fare theke alada). Patient er number provider accept na korle hidden.
-- bKash: official API credential thakle seta, na thakle shob fee tomar number e **Send Money**. Page ta bKash-pink style, kintu likha ache eta MediHome guide, official bKash app na. Tumi TrxID check kore Approve koro (automatic na).
+- Payment: ekhon **shudhu demo mode**: kono asol bKash payment, verification ba refund nai.
 - Login/Register page e Google ar Facebook button shob shomoy dekha jay.
 - AI: `AIza...` ar `AQ....` dui rokom key-i support kore. Error hole HTTP status dekhay (key kokhono na).
 - Environment checker: `node scripts/doctor.js` (kono secret print kore na).

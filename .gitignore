@@ -18,6 +18,9 @@ yarn-debug.log*
 # backups & temporary directories
 *backup*
 *fix-*
+*.bak
+*.bak_*
+*.before-*
 *.tsbuildinfo
 tsconfig.json.before-*
 

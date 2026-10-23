@@ -1,1 +1,3 @@
-export default function Page() { return <div style={{ maxWidth: 680 }}><h1>Help</h1><p>Booking: choose a service, pay the BDT 10 service fee via bKash, then wait for the hospital response where required. Payment problems: open your booking in your dashboard and use Pay again, or contact the site owner. Hospitals: register, pay the registration fee in the Billing tab, then publish your doctors, beds, blood stock and tests. Emergency: call 999.</p></div>; }
+import InfoPage from "@/components/InfoPage";
+import { getDict } from "@/lib/i18n/server";
+export default function Page() { const t = getDict().info; return <InfoPage icon="help" title={t.helpTitle} sub={t.helpSub} items={t.help} />; }

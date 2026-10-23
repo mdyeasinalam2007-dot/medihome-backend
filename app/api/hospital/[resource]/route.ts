@@ -3,11 +3,8 @@ import { db } from "@/lib/db";
 import { handle, needHospital, HttpError } from "@/lib/guard";
 import { RES, PROFILE_FIELDS, parse } from "@/lib/resources";
 import { BLOOD_GROUPS } from "@/lib/constants";
-import { effectiveStatus, extendExpiry } from "@/lib/subscription";
+import { effectiveStatus, extendExpiry, isApproved, canRenew, RENEW_WINDOW_DAYS } from "@/lib/subscription";
 import { REG_FEE, MONTHLY_FEE } from "@/lib/pricing";
-import { startPayment } from "@/lib/payments";
-import { paymentMode } from "@/lib/bkash";
-import { maskPhone } from "@/lib/mask";
 import { audit } from "@/lib/audit";
 
 const model = (r: string) => (db as any)[RES[r].model];
@@ -19,39 +16,28 @@ export const GET = handle(async (_req, { params }) => {
   if (r === "blood") return NextResponse.json(await db.bloodStock.findMany({ where: { hospitalId: h.id } }));
   if (r === "billing") {
     const payments = await db.payment.findMany({ where: { hospitalId: h.id, purpose: { in: ["REGISTRATION", "SUBSCRIPTION"] } }, orderBy: { createdAt: "desc" }, take: 30 });
-    return NextResponse.json({ status: effectiveStatus(h), expiresAt: h.subExpiresAt, regPaid: h.regPaid, regFee: REG_FEE(), monthlyFee: MONTHLY_FEE(), mode: paymentMode(),
-      destination: maskPhone(process.env.MEDIHOME_PAYMENT_DESTINATION), payments });
+    return NextResponse.json({ status: effectiveStatus(h), expiresAt: h.subExpiresAt, regPaid: h.regPaid, regFee: REG_FEE(), monthlyFee: MONTHLY_FEE(), mode: "demo",
+      approved: isApproved(h), canRenew: canRenew(h), renewWindowDays: RENEW_WINDOW_DAYS, payments });
   }
   throw new HttpError(404, "Unknown resource");
 });
 
 export const POST = handle(async (req, { params }) => {
   const r = params.resource, b = await req.json().catch(() => ({}));
-  if (r === "billing") { // allowed even when inactive: this is how an account is (re)activated
+  if (r === "billing") { // DEMO renewal. It can never approve a hospital: only an administrator can (see /owner).
     const { u, h } = await needHospital(false);
     if (h.subStatus === "SUSPENDED") throw new HttpError(403, "Account suspended. Please contact support.");
-    const purpose = h.regPaid ? "SUBSCRIPTION" : "REGISTRATION";
-    const updated = await db.hospital.update({
-      where: { id: h.id },
-      data: {
-        subStatus: "ACTIVE",
-        subExpiresAt: extendExpiry(h.subExpiresAt),
-        regPaid: true,
-      },
+    if (!isApproved(h)) throw new HttpError(403, "Your hospital is awaiting approval by a MediHome administrator. Billing opens after approval.");
+    if (!canRenew(h)) throw new HttpError(409, `Your subscription is already active until ${h.subExpiresAt!.toISOString().slice(0, 10)}. Renewal opens ${RENEW_WINDOW_DAYS} days before it ends.`);
+    const now = new Date(), next = extendExpiry(h.subExpiresAt, now);
+    // Guarded update: matches only while still approved and inside the renewal window, so a double click can't stack months.
+    const x = await db.hospital.updateMany({
+      where: { id: h.id, subStatus: "ACTIVE", OR: [{ subExpiresAt: null }, { subExpiresAt: { lte: new Date(now.getTime() + RENEW_WINDOW_DAYS * 86_400_000) } }] },
+      data: { subExpiresAt: next, regPaid: true },
     });
-    const out = await startPayment({
-      purpose,
-      amount: purpose === "REGISTRATION" ? REG_FEE() : MONTHLY_FEE(),
-      userId: u.id,
-      hospitalId: h.id,
-    });
-    return NextResponse.json({
-      url: out.url,
-      demo: true,
-      subscriptionStatus: updated.subStatus,
-      expiresAt: updated.subExpiresAt,
-      message: "Demo subscription activated. No money was transferred.",
-    });
+    if (!x.count) throw new HttpError(409, "Your subscription was just renewed.");
+    await audit({ actorId: u.id, hospitalId: h.id, action: "SUBSCRIPTION_RENEWED_DEMO", entity: "Hospital", entityId: h.id, meta: { until: next.toISOString() } });
+    return NextResponse.json({ ok: true, demo: true, subscriptionStatus: "ACTIVE", expiresAt: next, message: "Demo mode: subscription renewed for 30 days. No money was collected." });
   }
   if (!RES[r]) throw new HttpError(404, "Unknown resource");
   const { h, u } = await needHospital(true);

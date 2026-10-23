@@ -1,77 +1,26 @@
 import { listAmbulances } from "@/lib/queries";
-import { AMB_FEE } from "@/lib/pricing";
 import Empty, { SearchForm } from "@/components/Empty";
-import AmbulanceDialog from "@/components/AmbulanceDialog";
+import { PageHead, ResultInfo, Unavailable } from "@/components/listing/Listing";
+import { AmbulanceCard } from "@/components/listing/Cards";
+import Icon from "@/components/ui/Icon";
+import { getLang } from "@/lib/i18n/server";
+import { getDictFor } from "@/lib/i18n/dictionaries";
 
 export const dynamic = "force-dynamic";
 
-export default async function Ambulance({
-  searchParams,
-}: {
-  searchParams?: { q?: string };
-}) {
-  const q = searchParams?.q;
-  let rows: any[] = [];
-  let dbError: string | null = null;
+export default async function Ambulance({ searchParams }: { searchParams?: { q?: string } }) {
+  const lang = getLang(), t = getDictFor(lang), q = searchParams?.q?.trim() || undefined;
+  let rows: any[] = [], failed = false;
+  try { rows = await listAmbulances(q); } catch (err: any) { console.error("Failed to load ambulances:", err?.message || err); failed = true; }
 
-  try {
-    rows = await listAmbulances(q);
-  } catch (err: any) {
-    console.error("Failed to load ambulances:", err?.message || err);
-    dbError = "Unable to connect to the database. Please try again shortly.";
-  }
-
-  return (
-    <>
-      <h1>Ambulance</h1>
-      <p className="sub">
-        Request a registered ambulance service. For a life-threatening
-        emergency call 999 first.
-      </p>
-      <SearchForm q={q} placeholder="Type, area or provider" />
-      <div className="grid">
-        {dbError ? (
-          <Empty
-            icon="⚠️"
-            title="Service Temporarily Unavailable"
-            text={dbError}
-          />
-        ) : rows.length ? (
-          rows.map((a) => (
-            <div className="card" key={a.id}>
-              <div className="row" style={{ marginTop: 0 }}>
-                <h3>{a.type}</h3>
-                <span className="badge ok">Available</span>
-              </div>
-              <p>
-                {a.provider?.name || "Provider"} ·{" "}
-                {a.area || a.provider?.area || ""}
-              </p>
-              {a.notes && <p>{a.notes}</p>}
-              <p>
-                Fare: ৳{a.baseFare}
-                {a.perKm ? ` + ৳${a.perKm}/km` : ""} (paid directly to provider)
-              </p>
-              <div className="row">
-                <span />
-                <AmbulanceDialog
-                  id={a.id}
-                  title={a.type}
-                  provider={a.provider?.name || "Provider"}
-                  fare={`৳${a.baseFare}${a.perKm ? ` + ৳${a.perKm}/km` : ""}`}
-                  fee={AMB_FEE()}
-                />
-              </div>
-            </div>
-          ))
-        ) : (
-          <Empty
-            icon="🚑"
-            title="No Ambulance Services Available Right Now"
-            text="No provider has listed an available ambulance yet. Please check back soon."
-          />
-        )}
-      </div>
-    </>
-  );
+  return <>
+    <PageHead icon="ambulance" title={t.ambulance.title} sub={t.ambulance.sub} />
+    <a href="tel:999" className="sos-strip"><Icon name="phone" />{t.nav.call999}</a>
+    <SearchForm q={q} placeholder={t.ambulance.placeholder} label={t.list.searchLabel} button={t.list.search} />
+    {failed ? <Unavailable t={t} /> : <>
+      <ResultInfo t={t} lang={lang} count={rows.length} q={q} filtered={!!q} base="/ambulance" />
+      <div className="grid">{rows.length ? rows.map((v) => <AmbulanceCard key={v.id} v={v} t={t} lang={lang} />)
+        : <Empty icon="ambulance" title={t.ambulance.emptyTitle} text={t.ambulance.emptyText} />}</div>
+    </>}
+  </>;
 }

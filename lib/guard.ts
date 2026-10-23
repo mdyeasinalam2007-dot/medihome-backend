@@ -1,14 +1,19 @@
 import { NextResponse } from "next/server";
 import { db } from "./db";
 import { me } from "./auth";
-import { isActive } from "./subscription";
+import { inactiveReason } from "./subscription";
 
 export class HttpError extends Error { constructor(public status: number, msg: string) { super(msg); } }
 
 export const handle = (fn: (req: Request, ctx: any) => Promise<Response>) => async (req: Request, ctx: any) => {
   try { return await fn(req, ctx); }
   catch (e: any) {
+    if (e?.digest === "DYNAMIC_SERVER_USAGE") throw e; // Next.js build-time signal, not an error: let Next handle it
     if (e instanceof HttpError) return NextResponse.json({ error: e.message }, { status: e.status });
+    if (e?.name === "PrismaClientInitializationError") { // missing/invalid DATABASE_URL or database unreachable
+      console.error("API error: database unavailable", e?.errorCode || "");
+      return NextResponse.json({ error: "Service temporarily unavailable. Please try again shortly." }, { status: 503 });
+    }
     console.error("API error:", e?.message); // never log bodies / secrets
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
@@ -21,12 +26,18 @@ export async function needUser(role?: "PATIENT" | "HOSPITAL" | "AMBULANCE") {
   return u;
 }
 
+// Throws the right error when a hospital is pending approval, suspended or expired.
+export function assertHospitalActive(h: { subStatus: string; subExpiresAt: Date | null }) {
+  const r = inactiveReason(h);
+  if (r) throw new HttpError(r.status, r.message);
+}
+
 // Ownership is resolved from the session user, never from client input.
 export async function needHospital(requireActive = false) {
   const u = await needUser("HOSPITAL");
   const h = await db.hospital.findUnique({ where: { userId: u.id } });
   if (!h) throw new HttpError(403, "No hospital linked to this account");
-  if (requireActive && !isActive(h)) throw new HttpError(402, "Your subscription is not active. Please pay to continue.");
+  if (requireActive) assertHospitalActive(h);
   return { u, h };
 }
 
@@ -47,7 +58,7 @@ export async function needProvider(write = false) {
   if (u.role === "HOSPITAL") {
     const h = await db.hospital.findUnique({ where: { userId: u.id } });
     if (!h) throw new HttpError(403, "No hospital linked to this account");
-    if (write && !isActive(h)) throw new HttpError(402, "Your subscription is not active. Please pay to continue.");
+    if (write) assertHospitalActive(h);
     if (!p) p = await db.ambulanceProvider.create({ data: { userId: u.id, name: h.name, area: h.location, phone: h.phone } });
   }
   if (!p) throw new HttpError(403, "No ambulance service linked to this account");

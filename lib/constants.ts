@@ -11,9 +11,9 @@ export const catLabel = (k: string) => CATEGORIES.find((c) => c[0] === k)?.[1] |
 // AC / Non-AC only makes sense for these (not for clinical beds like ICU/CCU)
 export const AC_CATS = ["general","male_ward","female_ward","isolation","cabin","vip_cabin","single_room","double_room","shared_room","maternity"];
 export const STATUS_LABEL: Record<string, string> = {
-  REQUESTED: "Requested", AWAITING_PAYMENT: "Awaiting payment", PAID: "Paid - awaiting hospital", CONFIRMED: "Confirmed",
+  REQUESTED: "Requested - awaiting hospital", AWAITING_PAYMENT: "Not submitted yet", PAID: "Awaiting hospital", CONFIRMED: "Confirmed",
   REJECTED: "Rejected", CANCELLED: "Cancelled", COMPLETED: "Completed", REFUND_PENDING: "Refund pending", REFUNDED: "Refunded",
 };
 export const SUB_LABEL: Record<string, string> = {
-  PENDING_PAYMENT: "Pending payment", PENDING_VERIFICATION: "Pending verification", ACTIVE: "Active", PAST_DUE: "Past due", SUSPENDED: "Suspended",
+  PENDING_PAYMENT: "Pending approval", PENDING_VERIFICATION: "Pending approval", ACTIVE: "Active", PAST_DUE: "Past due", SUSPENDED: "Suspended",
 };
